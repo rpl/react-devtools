@@ -13,9 +13,11 @@ const {Class} = require('sdk/core/heritage');
 const {Disposable} = require('sdk/core/disposable');
 const {emit} = require('sdk/event/core');
 const {EventTarget} = require('sdk/event/target');
+
 const {Cu} = require('chrome');
 const {gDevTools} = Cu.import('resource://devtools/client/framework/gDevTools.jsm', {});
 
+// Weak map of toolbox per target
 const toolboxes = new WeakMap();
 const toolboxFor = target => toolboxes.get(target);
 
@@ -24,29 +26,32 @@ const ToolboxListener = Class({
   implements: [EventTarget],
 
   initialize() {
-    this.onToolboxReady = this.onToolboxReady.bind(this);
-    this.onToolboxDestroyed = this.onToolboxDestroyed.bind(this);
+    this.onToolboxCreated = this.onToolboxCreated.bind(this);
+    this.onToolboxDestroy = this.onToolboxDestroy.bind(this);
     this.onSelect = this.onSelect.bind(this);
 
-    gDevTools.on('toolbox-ready', this.onToolboxReady);
-    gDevTools.on('toolbox-destroyed', this.onToolboxDestroyed);
+    gDevTools.on('toolbox-created', this.onToolboxCreated);
+    gDevTools.on('toolbox-destroy', this.onToolboxDestroy);
   },
 
   dispose() {
     for (let toolbox of toolboxes.values()) { // eslint-disable-line prefer-const
       toolbox.off('select', this.onSelect);
     }
-    gDevTools.off('toolbox-ready', this.onToolboxReady);
-    gDevTools.off('toolbox-destroyed', this.onToolboxDestroyed);
+
+    gDevTools.off('toolbox-created', this.onToolboxCreated);
+    gDevTools.off('toolbox-destroy', this.onToolboxDestroy);
   },
 
-  onToolboxReady(evt, toolbox) {
+  onToolboxCreated(evt, toolbox) {
     toolboxes.set(toolbox.target, toolbox);
+
     toolbox.on('select', this.onSelect);
   },
 
-  onToolboxDestroyed(evt, target) {
+  onToolboxDestroy(evt, target) {
     const toolbox = toolboxFor(target);
+
     if (toolbox) {
       toolbox.off('select', this.onSelect);
     }
@@ -61,16 +66,17 @@ const toolboxListener = new ToolboxListener();
 
 const PanelVisibilityListener = Class({
   implements: [Disposable],
-
   initialize() {
     this.panels = new Set();
     this.visiblePanels = new WeakSet();
     this.onPanelSelected = this.onPanelSelected.bind(this);
+
     toolboxListener.on('panel-selected', this.onPanelSelected);
   },
 
   dispose() {
     toolboxListener.off('panel-selected', this.onPanelSelected);
+
     this.panels.clear();
     this.visiblePanels = null;
   },
